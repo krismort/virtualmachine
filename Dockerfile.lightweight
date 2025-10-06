@@ -13,8 +13,10 @@ RUN apt-get update && apt-get install -y \
     openssl \
     xvfb \
     x11vnc \
+    tightvncserver \
     fluxbox \
     xterm \
+    expect \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

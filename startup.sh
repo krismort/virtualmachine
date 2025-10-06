@@ -8,15 +8,22 @@ VNC_PASSWORD=${VNC_PASSWORD:-$(pwgen -s 8 1)}
 # Set the SSH password for appuser
 echo "appuser:$SSH_PASSWORD" | chpasswd
 
-# Set the VNC password
+# Create VNC password using expect script (since vncpasswd might not be available)
 mkdir -p /home/appuser/.vnc
-echo "$VNC_PASSWORD" | vncpasswd -f > /home/appuser/.vnc/passwd
-chmod 600 /home/appuser/.vnc/passwd
 chown -R appuser:appuser /home/appuser/.vnc
 
+# Create VNC password file manually using x11vnc method
+echo "$VNC_PASSWORD" > /tmp/vncpass
+x11vnc -storepasswd "$VNC_PASSWORD" /home/appuser/.vnc/passwd
+chmod 600 /home/appuser/.vnc/passwd
+chown appuser:appuser /home/appuser/.vnc/passwd
+
 # Also create a system-wide VNC password file
-echo "$VNC_PASSWORD" | vncpasswd -f > /etc/vnc_password
+x11vnc -storepasswd "$VNC_PASSWORD" /etc/vnc_password
 chmod 600 /etc/vnc_password
+
+# Clean up temporary password file
+rm -f /tmp/vncpass
 
 # Print credentials to logs (for debugging - remove in production)
 echo "=== CREDENTIALS ==="
@@ -37,14 +44,20 @@ Xvfb :0 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &
 XVFB_PID=$!
 
 # Wait for X server to start
-sleep 3
+sleep 5
+
+# Test if X server is running
+if ! xdpyinfo -display :0 >/dev/null 2>&1; then
+    echo "ERROR: X server failed to start"
+    exit 1
+fi
 
 # Start window manager as appuser
 echo "Starting window manager..."
 su - appuser -c "DISPLAY=:0 xfce4-session" &
 
-# Wait a bit for desktop to initialize
-sleep 5
+# Wait for desktop to initialize
+sleep 10
 
 # Start supervisord to manage services
 echo "Starting services..."

@@ -14,14 +14,16 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     wget \
     curl \
+    expect \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install desktop environment - use standard xubuntu-desktop instead of minimal
+# Install desktop environment and VNC packages
 RUN apt-get update && apt-get install -y \
     xfce4 \
     xfce4-goodies \
     x11vnc \
+    tightvncserver \
     firefox \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

@@ -1,175 +1,280 @@
-# Build Troubleshooting Guide
+# Build and Runtime Troubleshooting Guide
 
-This guide addresses common build issues and provides solutions for the secure desktop Docker setup.
+This guide addresses common build and runtime issues for the secure desktop Docker setup.
 
-## Common Build Errors
+## Runtime Errors
 
-### Error: "Unable to locate package xubuntu-desktop-minimal"
+### Error: "vncpasswd: command not found"
 
-**Problem:** The package `xubuntu-desktop-minimal` may not be available in all Ubuntu repositories.
+**Problem:** The `vncpasswd` command is not available in the container.
 
-**Solution:** The main `Dockerfile` has been updated to use `xfce4` and `xfce4-goodies` instead, which are more widely available.
-
-**Fixed in:** Main `Dockerfile` now uses:
-```dockerfile
-RUN apt-get update && apt-get install -y \
-    xfce4 \
-    xfce4-goodies \
-    x11vnc \
-    firefox \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-```
-
-### Alternative: Lightweight Build
-
-If you encounter issues with the full desktop environment, use the lightweight version:
-
-**Files:**
-- `Dockerfile.lightweight` - Minimal desktop with Fluxbox
-- `startup-lightweight.sh` - Lightweight startup script
-- `docker-compose.lightweight.yml` - Compose file for lightweight version
-
-**To use lightweight version:**
+**Solution:** Updated startup scripts now use `x11vnc -storepasswd` instead:
 ```bash
-# Build lightweight version
-docker compose -f docker-compose.lightweight.yml up -d --build
+# Old (broken)
+echo "$VNC_PASSWORD" | vncpasswd -f > /home/appuser/.vnc/passwd
 
-# Or rename files to use as default
-mv Dockerfile Dockerfile.full
-mv Dockerfile.lightweight Dockerfile
+# New (fixed)
+x11vnc -storepasswd "$VNC_PASSWORD" /home/appuser/.vnc/passwd
 ```
 
-## Build Options Comparison
+**Fixed in:** Both `startup.sh` and `startup-lightweight.sh`
 
-| Feature | Full Version | Lightweight Version |
-|---------|-------------|-------------------|
-| Desktop Environment | XFCE4 (full) | Fluxbox (minimal) |
-| Applications | Firefox, full suite | xterm only |
-| Build Time | ~10-15 minutes | ~3-5 minutes |
-| Image Size | ~2-3 GB | ~800 MB - 1 GB |
-| RAM Usage | ~1-2 GB | ~300-500 MB |
+### Error: "Readiness probe failed: dial tcp ... connect: connection refused"
 
-## Build Performance Tips
+**Problem:** Health check trying to connect to VNC port before service is ready.
 
-### 1. Use Multi-stage Builds
-The Dockerfiles are already optimized with staged package installation to avoid timeouts.
-
-### 2. Increase Build Resources
-If building locally, ensure Docker has sufficient resources:
-```bash
-# Check Docker resources
-docker system df
-docker system info
-```
-
-### 3. Use Build Cache
-Docker will cache layers. To force rebuild:
-```bash
-docker compose build --no-cache
-```
-
-### 4. Regional Package Mirrors
-For faster package downloads, you can modify the Dockerfile to use regional mirrors:
-```dockerfile
-# Add before first apt-get update
-RUN sed -i 's/archive.ubuntu.com/your-regional-mirror.com/g' /etc/apt/sources.list
-```
-
-## Digital Ocean Specific Issues
-
-### Build Timeout
-Digital Ocean App Platform has build time limits. If builds timeout:
-
-1. **Use the lightweight version**
-2. **Optimize package installation:**
-   ```dockerfile
-   # Install in smaller groups
-   RUN apt-get update && apt-get install -y openssh-server stunnel4
-   RUN apt-get install -y supervisor pwgen openssl
-   RUN apt-get install -y xfce4 x11vnc
+**Solutions:**
+1. **Increased startup time** in `.do/app.yaml`:
+   ```yaml
+   health_check:
+     initial_delay_seconds: 120  # Increased from 60
+     period_seconds: 30          # Increased from 10
+     failure_threshold: 5        # Increased from 3
    ```
 
-### Resource Limits
-Ensure your Digital Ocean app has sufficient resources:
-- **Minimum:** basic-s (1 vCPU, 512 MB RAM)
-- **Recommended:** basic-m (1 vCPU, 1 GB RAM)
+2. **Added service startup priorities** in `supervisord.conf`:
+   ```ini
+   [program:sshd]
+   priority=100
+   
+   [program:stunnel]
+   priority=200
+   
+   [program:x11vnc]
+   priority=300
+   startsecs=10
+   ```
 
-## Testing Build Locally
+### Error: "component terminated with non-zero exit code: 127"
 
-### Quick Test Build
-```bash
-# Test lightweight version first
-docker build -f Dockerfile.lightweight -t test-light .
+**Problem:** Missing dependencies or failed service startup.
 
-# If successful, test full version
-docker build -f Dockerfile -t test-full .
-```
-
-### Debugging Build Issues
-```bash
-# Build with verbose output
-docker build --progress=plain -f Dockerfile .
-
-# Build specific stage only
-docker build --target stage-name -f Dockerfile .
-```
-
-## Package Alternatives
-
-If specific packages fail to install, here are alternatives:
-
-| Original Package | Alternative | Notes |
-|-----------------|-------------|-------|
-| `xubuntu-desktop-minimal` | `xfce4` + `xfce4-goodies` | More widely available |
-| `xubuntu-desktop` | `lubuntu-desktop` | Lighter alternative |
-| `firefox` | `chromium-browser` | Alternative browser |
-| `x11vnc` | `tightvncserver` | Alternative VNC server |
-
-## Environment-Specific Fixes
-
-### Ubuntu 20.04 Base
-If you need Ubuntu 20.04 compatibility:
-```dockerfile
-FROM ubuntu:20.04
-# Add universe repository
-RUN apt-get update && apt-get install -y software-properties-common
-RUN add-apt-repository universe
-```
-
-### ARM64 Support
-For ARM64 platforms (Apple Silicon, etc.):
-```dockerfile
-FROM --platform=linux/amd64 ubuntu:22.04
-# Forces x86_64 build on ARM systems
-```
-
-## Verification Steps
-
-After fixing build issues:
-
-1. **Run configuration tests:**
+**Debugging Steps:**
+1. **Run debug script:**
    ```bash
-   ./test_config.sh
+   docker compose exec secure-desktop /debug_startup.sh
    ```
 
-2. **Test port mappings:**
-   ```bash
-   ./test_ports.sh
-   ```
-
-3. **Verify services start:**
+2. **Check service logs:**
    ```bash
    docker compose logs -f
    ```
 
-## Getting Help
+3. **Verify package installation:**
+   ```bash
+   docker compose exec secure-desktop dpkg -l | grep -E "(x11vnc|openssh|stunnel)"
+   ```
 
-If you continue to experience build issues:
+## Build Errors
 
-1. Check the build logs for specific error messages
-2. Try the lightweight version first
-3. Ensure your Docker environment has sufficient resources
-4. Consider using a different base image if needed
+### Error: "Unable to locate package xubuntu-desktop-minimal"
 
-The lightweight version should build successfully in most environments and provides the core functionality needed for the secure desktop setup.
+**Problem:** Package not available in Ubuntu repositories.
+
+**Solution:** Updated Dockerfile to use available packages:
+```dockerfile
+# Fixed packages
+RUN apt-get update && apt-get install -y \
+    xfce4 \
+    xfce4-goodies \
+    x11vnc \
+    tightvncserver \  # Provides vncpasswd alternative
+    firefox \
+    && apt-get clean
+```
+
+## Service Startup Issues
+
+### VNC Server Not Starting
+
+**Symptoms:**
+- Connection refused on port 5900
+- "x11vnc: cannot find display" in logs
+
+**Solutions:**
+1. **Verify X server is running:**
+   ```bash
+   docker compose exec secure-desktop ps aux | grep Xvfb
+   ```
+
+2. **Check X server display:**
+   ```bash
+   docker compose exec secure-desktop xdpyinfo -display :0
+   ```
+
+3. **Restart X11VNC service:**
+   ```bash
+   docker compose exec secure-desktop supervisorctl restart x11vnc
+   ```
+
+### SSH Server Not Starting
+
+**Symptoms:**
+- Connection refused on port 2222
+- "sshd: no hostkeys available" in logs
+
+**Solutions:**
+1. **Generate SSH host keys:**
+   ```bash
+   docker compose exec secure-desktop ssh-keygen -A
+   ```
+
+2. **Restart SSH service:**
+   ```bash
+   docker compose exec secure-desktop supervisorctl restart sshd
+   ```
+
+### Stunnel Not Starting
+
+**Symptoms:**
+- Connection refused on port 8443
+- Certificate errors in logs
+
+**Solutions:**
+1. **Verify certificate exists:**
+   ```bash
+   docker compose exec secure-desktop ls -la /etc/ssl/certs/stunnel.pem
+   ```
+
+2. **Test stunnel config:**
+   ```bash
+   docker compose exec secure-desktop stunnel -test -fd 0 < /etc/stunnel/stunnel.conf
+   ```
+
+## Digital Ocean Specific Issues
+
+### App Platform Health Check Failures
+
+**Problem:** Health checks failing during startup.
+
+**Solution:** Updated health check configuration:
+```yaml
+health_check:
+  http_path: /
+  initial_delay_seconds: 120    # Allow more time for startup
+  period_seconds: 30            # Check less frequently
+  timeout_seconds: 10           # Allow more time per check
+  success_threshold: 1
+  failure_threshold: 5          # Allow more failures
+```
+
+### Resource Constraints
+
+**Problem:** Container running out of memory or CPU.
+
+**Solutions:**
+1. **Use lightweight version:**
+   ```bash
+   mv Dockerfile Dockerfile.full
+   mv Dockerfile.lightweight Dockerfile
+   ```
+
+2. **Increase instance size in `.do/app.yaml`:**
+   ```yaml
+   instance_size_slug: basic-m  # or basic-l
+   ```
+
+## Debugging Tools
+
+### Debug Startup Script
+
+Run the comprehensive debug script:
+```bash
+# In running container
+./debug_startup.sh
+
+# Or via Docker Compose
+docker compose exec secure-desktop ./debug_startup.sh
+```
+
+### Manual Service Testing
+
+Test each service individually:
+```bash
+# Test SSH
+ssh appuser@localhost -p 2222
+
+# Test VNC (with VNC client)
+vncviewer localhost:5900
+
+# Test Stunnel
+telnet localhost 8443
+```
+
+### Log Analysis
+
+Check specific service logs:
+```bash
+# All logs
+docker compose logs -f
+
+# Specific service logs
+docker compose exec secure-desktop tail -f /var/log/sshd.log
+docker compose exec secure-desktop tail -f /var/log/x11vnc.log
+docker compose exec secure-desktop tail -f /var/log/stunnel.log
+docker compose exec secure-desktop tail -f /var/log/supervisord.log
+```
+
+## Performance Optimization
+
+### Reduce Startup Time
+
+1. **Use lightweight version** for faster startup
+2. **Pre-build images** and push to registry
+3. **Optimize package installation** order
+
+### Memory Usage
+
+1. **Monitor resource usage:**
+   ```bash
+   docker stats secure-desktop-local
+   ```
+
+2. **Adjust X server settings:**
+   ```bash
+   # Reduce color depth
+   Xvfb :0 -screen 0 1024x768x16  # 16-bit instead of 24-bit
+   ```
+
+## Recovery Procedures
+
+### Complete Service Restart
+
+```bash
+# Stop all services
+docker compose down
+
+# Remove containers and volumes (if needed)
+docker compose down -v
+
+# Rebuild and start
+docker compose up -d --build
+```
+
+### Partial Service Restart
+
+```bash
+# Restart specific services
+docker compose exec secure-desktop supervisorctl restart all
+docker compose exec secure-desktop supervisorctl restart x11vnc
+docker compose exec secure-desktop supervisorctl restart sshd
+```
+
+## Prevention
+
+### Regular Maintenance
+
+1. **Update base images** regularly
+2. **Monitor logs** for warnings
+3. **Test connectivity** after deployments
+4. **Backup persistent data** from `/data` volume
+
+### Monitoring
+
+Set up monitoring for:
+- Service availability (SSH, VNC, Stunnel)
+- Resource usage (CPU, memory, disk)
+- Log errors and warnings
+- Connection success rates
+
+The fixes implemented should resolve the `vncpasswd` command not found error and improve service startup reliability.
