@@ -18,7 +18,7 @@ chown -R appuser:appuser /home/appuser/.vnc
 echo "$VNC_PASSWORD" | vncpasswd -f > /etc/vnc_password
 chmod 600 /etc/vnc_password
 
-# Print credentials to logs (for debugging - remove in production)
+# Print credentials to logs
 echo "=== CREDENTIALS ==="
 echo "SSH User: appuser"
 echo "SSH Password: $SSH_PASSWORD"
@@ -33,18 +33,20 @@ export DISPLAY=:0
 
 # Start X server in background
 echo "Starting X server..."
-Xvfb :0 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &
-XVFB_PID=$!
+Xvfb :0 -screen 0 1024x768x24 -ac &
 
 # Wait for X server to start
 sleep 3
 
-# Start window manager as appuser
+# Start lightweight window manager as appuser
 echo "Starting window manager..."
-su - appuser -c "DISPLAY=:0 xfce4-session" &
+su - appuser -c "DISPLAY=:0 fluxbox" &
+
+# Start a terminal for the user
+su - appuser -c "DISPLAY=:0 xterm" &
 
 # Wait a bit for desktop to initialize
-sleep 5
+sleep 3
 
 # Start supervisord to manage services
 echo "Starting services..."

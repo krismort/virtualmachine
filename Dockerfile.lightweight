@@ -1,10 +1,10 @@
-# Use a recent Ubuntu base image
+# Lightweight version with minimal desktop environment
 FROM ubuntu:22.04
 
 # Set non-interactive frontend to avoid prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install necessary packages in stages to avoid timeout issues
+# Install essential packages only
 RUN apt-get update && apt-get install -y \
     openssh-server \
     stunnel4 \
@@ -12,17 +12,9 @@ RUN apt-get update && apt-get install -y \
     pwgen \
     openssl \
     xvfb \
-    wget \
-    curl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install desktop environment - use standard xubuntu-desktop instead of minimal
-RUN apt-get update && apt-get install -y \
-    xfce4 \
-    xfce4-goodies \
     x11vnc \
-    firefox \
+    fluxbox \
+    xterm \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -48,17 +40,13 @@ RUN rm /tmp/key.pem /tmp/cert.pem
 COPY stunnel.conf /etc/stunnel/stunnel.conf
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Create startup script
-COPY startup.sh /startup.sh
+# Create startup script for lightweight version
+COPY startup-lightweight.sh /startup.sh
 RUN chmod +x /startup.sh
 
 # Create VNC directory
 RUN mkdir -p /home/appuser/.vnc
 RUN chown -R appuser:appuser /home/appuser
-
-# Set up X11 forwarding
-RUN mkdir -p /tmp/.X11-unix
-RUN chmod 1777 /tmp/.X11-unix
 
 # Expose ports
 EXPOSE 22 443 5900
