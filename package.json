@@ -1,0 +1,16 @@
+{
+  "name": "virtualmachine",
+  "version": "1.0.0",
+  "description": "virtualmachine",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest",
+    "example": "node examples.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "jest": "^30.2.0"
+  }
+}
